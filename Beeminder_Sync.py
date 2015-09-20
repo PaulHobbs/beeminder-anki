@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # by: muflax <mail@muflax.com>, 2012
+# License: GNU GPLv3 (or later) <http://www.gnu.org/copyleft/gpl.html>
 
 # This add-on sends your review stats to Beeminder (beeminder.com) and so keeps
 # your graphs up-to-date.
