@@ -41,8 +41,18 @@ from aqt import mw
 from aqt.qt import *
 from aqt.utils import showInfo, openLink
 
+import json
 import datetime
 import httplib, urllib
+import logging
+import os
+
+log = logging.getLogger()
+LOG_FILE = os.path.join(os.path.dirname(__file__),
+                        'Beeminder_Sync.log')
+FORMAT = '%(asctime)-15s %(message)s'
+logging.basicConfig(format=FORMAT, filename=LOG_FILE, level=logging.DEBUG)
+
 
 def checkCollection(col=None, force=False):
     """Check for unreported cards and send them to beeminder."""
@@ -50,34 +60,39 @@ def checkCollection(col=None, force=False):
     if col is None:
         return
 
-    # reviews
-    if REP_GOAL:
-        reps           = col.db.first("select count() from revlog")[0]
-        last_timestamp = col.conf.get("beeminderRepTimestamp", 0)
-        timestamp      = col.db.first("select id/1000 from revlog order by id desc limit 1")
+    def checkStat(count_type, goal, offset, select_query, timestamp_query):
+        new_cards      = col.db.first(select_query)[0]
+        last_timestamp = col.conf.get(count_type + 'Timestamp', 0)
+        timestamp      = col.db.first(timestamp_query)
         if timestamp is not None:
             timestamp = timestamp[0]
-        reportCards(col, reps, timestamp, "beeminderRepTotal", REP_GOAL, REP_OFFSET)
+        reportCards(col, new_cards, timestamp, count_type + 'Total', goal, offset)
 
         if (force or timestamp != last_timestamp) and SEND_DATA:
-            col.conf["beeminderRepTimestamp"] = timestamp
+            col.conf[count_type + 'Timestamp'] = timestamp
             col.setMod()
+
+    # reviews
+    if REP_GOAL:
+        checkStat(
+            count_type="beeminderRep",
+            goal=REP_GOAL,
+            offset=REP_OFFSET,
+            select_query="select count() from revlog where type = 0",
+            timestamp_query="select id/1000 from revlog order by id desc limit 1")
 
     # new cards
     if NEW_GOAL:
-        new_cards      = col.db.first("select count(distinct(cid)) from revlog where type = 0")[0]
-        last_timestamp = col.conf.get("beeminderNewTimestamp", 0)
-        timestamp      = col.db.first("select id/1000 from revlog where type = 0 order by id desc limit 1")
-        if timestamp is not None:
-            timestamp = timestamp[0]
-        reportCards(col, new_cards, timestamp, "beeminderNewTotal", NEW_GOAL, NEW_OFFSET)
-
-        if (force or timestamp != last_timestamp) and SEND_DATA:
-            col.conf["beeminderNewTimestamp"] = timestamp
-            col.setMod()
+        checkStat(
+            count_type="beeminderNew",
+            goal=NEW_GOAL,
+            offset=NEW_OFFSET,
+            select_query="select cout(distinct(id)) from revlog where type = 0",
+            timestamp_query="select id/1000 from revlog where type = 0 order by id desc limit 1")
 
     if force and (REP_GOAL or NEW_GOAL):
         showInfo("Synced with Beeminder.")
+
 
 def reportCards(col, total, timestamp, count_type, goal, offset=0, force=False):
     """Sync card counts and send them to beeminder."""
@@ -109,31 +124,46 @@ def reportCards(col, total, timestamp, count_type, goal, offset=0, force=False):
     if SEND_DATA:
         account = ACCOUNT
         token = TOKEN
-        sendApi(ACCOUNT, TOKEN, goal, data)
+        postData(goal, data)
         col.conf[count_type] = total
     else:
         print "would send:"
         print data
 
-def sendApi(account, token, goal, data):
+def sendApi(account, token, cmd, method='POST', data=None):
     base = "www.beeminder.com"
-    cmd = "datapoints"
-    api = "/api/v1/users/%s/goals/%s/%s.json" % (account, goal, cmd)
+    api = "/api/v1/users/%s/goals/%s.json" % (account, cmd)
 
     headers = {"Content-type": "application/x-www-form-urlencoded",
                "Accept": "text/plain"}
 
-    params = urllib.urlencode({"timestamp": data["date"],
-                               "value": data["value"],
-                               "comment": data["comment"],
-                               "auth_token": token})
+    params = {"auth_token": token}
+    params.update(data or {})
+    params = urllib.urlencode(params)
 
     conn = httplib.HTTPSConnection(base)
-    conn.request("POST", api, params, headers)
+    log.info("%sing %s", method, api)
+    conn.request(method, api, params, headers)
     response = conn.getresponse()
     if not response.status == 200:
         raise Exception("transmission failed:", response.status, response.reason, response.read())
+    content = response.read()
     conn.close()
+    return content
+
+
+def currentValue(goal):
+    return json.loads(
+        sendApi(ACCOUNT, TOKEN, goal, method='GET'))
+
+
+def postData(goal, data):
+    old = currentValue(goal)['curval']
+    log.debug("Current value for goal %s is %s", goal, old)
+    log.debug("Checking to see if we should replace with %s", data['value'])
+    if old != data['value']:
+        sendApi(ACCOUNT, TOKEN, '%s/datapoints' % goal, data=data)
+
 
 def beeminderUpdate(obj, _old=None):
     ret = _old(obj)
