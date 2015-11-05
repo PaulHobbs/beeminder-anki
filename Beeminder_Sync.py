@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # by: muflax <mail@muflax.com>, 2012
+# License: GNU GPLv3 (or later) <http://www.gnu.org/copyleft/gpl.html>
 
 # This add-on sends your review stats to Beeminder (beeminder.com) and so keeps
 # your graphs up-to-date.
@@ -161,7 +162,7 @@ def postData(goal, data):
     log.debug("Current value for goal %s is %s", goal, old)
     log.debug("Checking to see if we should replace with %s", data['value'])
     if old != data['value']:
-      sendApi(ACCOUNT, TOKEN, '%s/datapoints' % goal, data=data)
+        sendApi(ACCOUNT, TOKEN, '%s/datapoints' % goal, data=data)
 
 
 def beeminderUpdate(obj, _old=None):
