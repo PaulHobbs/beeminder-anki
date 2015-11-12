@@ -87,7 +87,7 @@ def checkCollection(col=None, force=False):
             count_type="beeminderNew",
             goal=NEW_GOAL,
             offset=NEW_OFFSET,
-            select_query="select cout(distinct(id)) from revlog where type = 0",
+            select_query="select count(distinct(id)) from revlog where type = 0",
             timestamp_query="select id/1000 from revlog where type = 0 order by id desc limit 1")
 
     if force and (REP_GOAL or NEW_GOAL):
